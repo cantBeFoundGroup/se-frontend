@@ -1,0 +1,93 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: 
+      - dev
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: action/checkout@v3
+        
+      - name: Login DockerHub
+        run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+      - name: Build and push Docker image
+        run: |
+          IMAGE=${{ secrets.DOCKER_REPO }}/${{ secrets.FRONTEND_NAME }}:${{ github.sha }}
+          LATEST=${{ secrets.DOCKER_REPO }}/${{ secrets.FRONTEND_NAME }}:latest
+          docker build -t $IMAGE -t $LATEST .
+          docker push $IMAGE
+          docker push $LATEST
+
+  pull-docker-image:
+    runs-on: [self-hosted, DeNeRATe-LOCAL]
+    needs: build-and-push
+
+    steps:
+      - name: Checkout docker
+        run: docker --version
+        shell: cmd
+
+      - name: Login DockerHub
+        shell: cmd
+        run: echo %DOCKER_PASSWORD% | docker login -u %DOCKER_USERNAME% --password-stdin
+        env: 
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Pull latest Docker iamge
+        shell: cmd
+        run: |
+          set IMAGE=%DOCKER_REPO%/%FRONTEND_NAME%:latest
+          docker pull %IMAGE%
+        env:
+          FRONTEND_NAME: ${{ secrets.FRONTEND_NAME }}
+          DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
+
+  deploy:
+    runs-on: [self-hosted, DeNeRATe-LOCAL]
+    needs: pull-docker-image
+
+    steps:
+      - name: Checkout code
+        uses: action/checkout@v3
+
+      - name: Ensure kubectl and kubeconfig
+        shell: cmd
+        run: |
+          kubectl version --client=true
+          set "kubeConfig=%USERPROFILE%\.kube\config"
+          if not exist "%kubeConfig%" (
+            echo kubeconfig not found at "%kubeConfig%". Enable Kubernetes in Docker Desktop, or provide KUBECONFIG.
+            exit /b 1
+          )
+          set "KUBECONFIG=%kubeConfig%"
+          echo KUBECONFIG=%kubeConfig%>> %GITHUB_ENV%
+          kubectl config current-context
+          kubectl get nodes
+          
+      - name: Apply base manifests
+        shell: cmd
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl -n se apply -f k8s/deployment.yaml
+          kubectl -n se apply -f k8s/service.yaml
+
+      - name: Rollout with current image
+        shell: cmd
+        run: |
+          set image=%DOCKER_REPO%/%FRONTEND_NAME%:latest
+          kubectl -n se set image deployment/se-frontend se-frontend=%image% --record
+          kubectl -n se rollout status deployment/se-frontend --timeout=180s
+          kubectl -n se get pods -o wide
+          kubectl -n se get svc se-frontend
+        env:
+          FRONTEND_NAME: ${{ secrets.FRONTEND_NAME }}
+          DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
+    
+        
