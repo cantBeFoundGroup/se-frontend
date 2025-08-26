@@ -27,9 +27,13 @@ jobs:
   pull-docker-image:
     runs-on: [self-hosted, DeNeRATe-LOCAL]
     needs: build-and-push
+    env:
+      FRONTEND_NAME: ${{ secrets.FRONTEND_NAME }}
+      DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
+      GITHUB_SHA: ${{ github.sha }}
 
     steps:
-      - name: Checkout docker
+      - name: Check docker
         run: docker --version
         shell: cmd
 
@@ -40,18 +44,19 @@ jobs:
           DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
           DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Pull latest Docker iamge
+      - name: Pull Docker image by SHA
         shell: cmd
         run: |
-          set IMAGE=%DOCKER_REPO%/%FRONTEND_NAME%:latest
+          set IMAGE=%DOCKER_REPO%/%FRONTEND_NAME%:%GITHUB_SHA%
           docker pull %IMAGE%
-        env:
-          FRONTEND_NAME: ${{ secrets.FRONTEND_NAME }}
-          DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
 
   deploy:
     runs-on: [self-hosted, DeNeRATe-LOCAL]
     needs: pull-docker-image
+    env:
+      FRONTEND_NAME: ${{ secrets.FRONTEND_NAME }}
+      DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
+      GITHUB_SHA: ${{ github.sha }}
 
     steps:
       - name: Checkout code
@@ -78,16 +83,11 @@ jobs:
           kubectl -n se apply -f k8s/deployment.yaml
           kubectl -n se apply -f k8s/service.yaml
 
-      - name: Rollout with current image
+      - name: Rollout with SHA image
         shell: cmd
         run: |
-          set image=%DOCKER_REPO%/%FRONTEND_NAME%:latest
-          kubectl -n se set image deployment/se-frontend se-frontend=%image% --record
+          set image=%DOCKER_REPO%/%FRONTEND_NAME%:%GITHUB_SHA%
+          kubectl -n se set image deployment/se-frontend se-frontend=%image%
           kubectl -n se rollout status deployment/se-frontend --timeout=180s
           kubectl -n se get pods -o wide
           kubectl -n se get svc se-frontend
-        env:
-          FRONTEND_NAME: ${{ secrets.FRONTEND_NAME }}
-          DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
-    
-        
