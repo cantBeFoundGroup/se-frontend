@@ -52,5 +52,41 @@ jobs:
   deploy:
     runs-on: [self-hosted, DeNeRATe-LOCAL]
     needs: pull-docker-image
+
+    steps:
+      - name: Checkout code
+        uses: action/checkout@v3
+
+      - name: Ensure kubectl and kubeconfig
+        shell: cmd
+        run: |
+          kubectl version --client=true
+          set "kubeConfig=%USERPROFILE%\.kube\config"
+          if not exist "%kubeConfig%" (
+            echo kubeconfig not found at "%kubeConfig%". Enable Kubernetes in Docker Desktop, or provide KUBECONFIG.
+            exit /b 1
+          )
+          set "KUBECONFIG=%kubeConfig%"
+          echo KUBECONFIG=%kubeConfig%>> %GITHUB_ENV%
+          kubectl config current-context
+          kubectl get nodes
+      - name: Apply base manifests
+        shell: cmd
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+          kubectl -n se-frontend apply -f k8s/deployment.yaml
+          kubectl -n se-frontend apply -f k8s/service.yaml
+
+      - name: Rollout with current image
+        shell: cmd
+        run: |
+          set image=%DOCKER_REPO%/%FRONTEND_NAME%:latest
+          kubectl -n se-frontend set image deployment/se-frontend se-frontend=%image% --record
+          kubectl -n se-frontend rollout status deployment/se-frontend --timeout=180s
+          kubectl -n se-frontend get pods -o wide
+          kubectl -n se-frontend get svc se-frontend
+        env:
+          FRONTEND_NAME: ${{ secrets.FRONTEND_NAME }}
+          DOCKER_REPO: ${{ secrets.DOCKER_REPO }}
     
         
