@@ -10,7 +10,7 @@ import axios from 'axios';
 //     }
 // });
 const instance = axios.create({
-    baseURL: 'http://se-backend.se:8080',
+    baseURL: 'http://localhost:30080',
     timeout: 50000
 });
 
