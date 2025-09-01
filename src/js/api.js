@@ -626,7 +626,7 @@ export const getTeacherListByCourseId = async (courseId) => {
     try {
         const res = await instance.get(`course/admins`, {
             params: {
-                course_id: courseId
+                courseId: courseId
             }
         })
         if (res.status !== 200) {
